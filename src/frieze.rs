@@ -1,9 +1,4 @@
-#![feature(vec_into_raw_parts)]
-#![feature(iter_order_by)]
-#[macro_use]
-extern crate bitflags;
-
-use array2d::Array2D;
+use crate::array2d::Array2D;
 
 bitflags! {
     struct Point: u8 {
