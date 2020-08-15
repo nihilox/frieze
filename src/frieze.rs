@@ -1,7 +1,9 @@
+use tera::{Context, Tera};
+
 use crate::array2d::Array2D;
 
 bitflags! {
-    struct Point: u8 {
+    pub struct Point: u8 {
         const N  = 0b0001;
         const NE = 0b0010;
         const E  = 0b0100;
@@ -10,7 +12,7 @@ bitflags! {
 }
 
 bitflags! {
-    struct Grid: u8 {
+    pub struct Grid: u8 {
         const EW =  0b00000001;
         const SN =  0b00000010;
         const AB =  0b00000100;
@@ -69,29 +71,23 @@ impl Grid {
 #[derive(Debug)]
 pub enum FriezeGroup {
     T,
-    TR,
-    TV,
-    TG,
+    TR(usize),
+    TV(usize),
+    TG(usize),
     THG,
-    TRVG,
-    TRHVG,
+    TRVG(usize),
+    TRHVG(usize),
 }
 
 pub struct Frieze {
+    points: Array2D<Point>,
     grids: Array2D<Grid>,
     period: usize,
 }
 
 impl Frieze {
-    fn from_grids(grids: Array2D<Grid>) -> Option<Self> {
-        (2..=grids.num_cols() / 2)
-            .filter(|&p| grids.rows().all(|row| row.starts_with(&row[p..])))
-            .next()
-            .map(|period| Self { grids, period })
-    }
-
-    fn from_points(points: Array2D<Point>) -> Option<Self> {
-        let elements = points
+    pub fn from_points(points: Array2D<Point>) -> Option<Self> {
+        let array = points
             .rows()
             .zip(points.rows().skip(1))
             .flat_map(|(r, nr)| {
@@ -101,12 +97,17 @@ impl Frieze {
             })
             .collect();
         let num_rows = points.num_rows() - 1;
-        let num_cols = points.num_cols() - 1;
-        let grids = Array2D::from_row_major(elements, num_rows, num_cols).unwrap();
-        Self::from_grids(grids)
+        let grids = Array2D::from_vec(array, num_rows).unwrap();
+        (2..=grids.num_cols() / 2)
+            .find(|&p| grids.rows().all(|row| row.starts_with(&row[p..])))
+            .map(|period| Self {
+                points,
+                grids,
+                period,
+            })
     }
 
-    fn is_horizontal_reflections(&self) -> bool {
+    fn horizontal(&self) -> bool {
         let half = (self.grids.num_rows() + 1) / 2;
         self.grids
             .rows()
@@ -120,23 +121,28 @@ impl Frieze {
             })
     }
 
-    fn is_vertical_reflections(&self) -> bool {
+    fn vertical(&self) -> Option<usize> {
         let period = self.period;
-        let sym: Vec<Grid> = self
+        let sym = self
             .grids
             .rows()
             .flat_map(|row| row[..period].iter().rev().map(Grid::vr))
-            .collect();
-        (period / 2..period).any(|i| {
-            sym.chunks(period).eq_by(self.grids.rows(), |a, b| {
-                let b = &b[i..];
-                a.ends_with(&b[..i]) || a.ends_with(&b[..i + 1])
+            .collect::<Vec<_>>();
+        let sym = sym.chunks(period);
+        let rows = self.grids.rows();
+
+        (period / 2..period)
+            .find_map(|i| {
+                [i * 2, i * 2 + 1].iter().cloned().find(|&j| {
+                    sym.clone()
+                        .eq_by(rows.clone(), |a, b| a.ends_with(&b[i..j]))
+                })
             })
-        })
+            .map(|i| i % period)
     }
 
-    fn is_rotation(&self) -> bool {
-        let row_len = self.period * 2;
+    fn rotation(&self) -> Option<usize> {
+        let row_len = self.period * 2 - 1;
         let half = (self.grids.num_rows() + 1) / 2;
         let sym: Vec<Grid> = self
             .grids
@@ -145,13 +151,15 @@ impl Frieze {
             .take(half)
             .flat_map(|row| row[..row_len].iter().rev().map(Grid::rotate))
             .collect();
-        (self.period..row_len).any(|size| {
-            sym.chunks(row_len)
-                .eq_by(self.grids.rows().take(half), |a, b| a.ends_with(&b[..size]))
-        })
+        (self.period..=row_len)
+            .find(|&i| {
+                sym.chunks(row_len)
+                    .eq_by(self.grids.rows().take(half), |a, b| a.ends_with(&b[..i]))
+            })
+            .map(|i| i % self.period)
     }
 
-    fn is_glied_reflections(&self) -> bool {
+    fn glied(&self) -> Option<usize> {
         let period = self.period;
         let half = (self.grids.num_rows() + 1) / 2;
         let sym: Vec<Grid> = self
@@ -161,46 +169,97 @@ impl Frieze {
             .take(half)
             .flat_map(|row| row[..period].iter().map(Grid::hr))
             .collect();
-        (0..period).any(|i| {
+        (0..period).find(|&i| {
             sym.chunks(period)
                 .eq_by(self.grids.rows().take(half), |a, b| b[i..].starts_with(a))
         })
     }
 
     pub fn group(&self) -> FriezeGroup {
-        if self.is_horizontal_reflections() {
-            if self.is_vertical_reflections() {
-                FriezeGroup::TRHVG
-            } else {
-                FriezeGroup::THG
-            }
-        } else if self.is_glied_reflections() {
-            if self.is_vertical_reflections() {
-                FriezeGroup::TRVG
-            } else {
-                FriezeGroup::TG
-            }
-        } else if self.is_vertical_reflections() {
-            FriezeGroup::TV
-        } else if self.is_rotation() {
-            FriezeGroup::TR
+        use FriezeGroup::*;
+        if self.horizontal() {
+            self.vertical().map_or(THG, |i| TRHVG(i))
+        } else if let Some(i) = self.glied() {
+            self.vertical().map_or(TG(i), |i| TRVG(i))
+        } else if let Some(i) = self.vertical() {
+            TV(i)
+        } else if let Some(i) = self.rotation() {
+            TR(i)
         } else {
-            FriezeGroup::T
+            T
         }
     }
 
     pub fn period(&self) -> usize {
         self.period
     }
-}
 
-pub fn parse(rows: Vec<u8>, num_rows: usize, num_cols: usize) -> Result<Frieze, &'static str> {
-    let points = {
-        let (ptr, len, cap) = rows.into_raw_parts();
-        let elements = unsafe { Vec::from_raw_parts(ptr as *mut Point, len, cap) };
-        Array2D::from_row_major(elements, num_rows, num_cols).ok_or("Incorrect size")?
-    };
-    let frieze = Frieze::from_points(points).ok_or("Not a frieze")?;
+    pub fn paths(&self) -> Vec<((usize, usize), (usize, usize))> {
+        let mut paths = Vec::with_capacity(self.points.num_elems() * 3);
+        for (y, row) in self.points.rows().enumerate() {
+            for (x, p) in row.iter().enumerate() {
+                if p.contains(Point::N) {
+                    paths.push(((x, y), (x, y - 1)));
+                }
+                if p.contains(Point::NE) {
+                    paths.push(((x, y), (x + 1, y - 1)));
+                }
+                if p.contains(Point::E) {
+                    paths.push(((x, y), (x + 1, y)));
+                }
+                if p.contains(Point::SE) {
+                    paths.push(((x, y), (x + 1, y + 1)));
+                }
+            }
+        }
+        paths
+    }
 
-    Ok(frieze)
+    pub fn draw_svg(&self) -> String {
+        use FriezeGroup::*;
+        let mut ctx = Context::new();
+        let group = self.group();
+        let title = format!("{:?} Period({})", group, self.period);
+        let width = self.grids.num_cols() as f64;
+        let height = self.grids.num_rows() as f64;
+        let middle = (self.grids.num_cols() / self.period * self.period / 2) as f64;
+        let pad = 2.0;
+
+        let tips = match group {
+            TV(i) | TRVG(i) | TRHVG(i) => {
+                let i = middle + i as f64 / 2.0;
+                format!("M {} {} L {} {}", i, -pad, i, height + pad)
+            }
+            TG(offset) => {
+                let offset = offset as f64;
+                let i = (width - offset) / 2.0;
+                let middle = height / 2.0;
+                format!(
+                    "M {} {} L {} {} L {} {} L {} {}",
+                    i,
+                    -pad,
+                    i,
+                    middle,
+                    i + offset,
+                    middle,
+                    i + offset,
+                    height + pad
+                )
+            }
+            TR(i) => {
+                let i = middle + i as f64 / 2.0;
+                let half = height / 2.0 + pad;
+                format!("M {} {} L {} {}", i - half, -pad, i + half, height + pad)
+            }
+            _ => "".into(),
+        };
+
+        ctx.insert("title", &title);
+        ctx.insert("width", &width);
+        ctx.insert("height", &height);
+        ctx.insert("paths", &self.paths());
+        ctx.insert("tips", &tips);
+
+        Tera::one_off(include_str!("graph.svg"), &ctx, true).expect("Could not draw graph")
+    }
 }

@@ -1,0 +1,28 @@
+<?xml version="1.0" standalone="no"?>
+<svg
+  width="100%"
+  height="100%"
+  viewBox="-2 -6 {{width+4 }} {{height + 12}}"
+  preserveAspectRatio="xMidYMid meet"
+  xmlns="http://www.w3.org/2000/svg"
+  >
+  {% for path in paths %}
+  {% set s = path.0 %}
+  {% set e = path.1 %}
+  <path stroke="#74838f" stroke-width="0.0375" d="M {{s.0}} {{s.1}} L {{e.0}} {{e.1}}" />
+  {% endfor %}
+  <path stroke="#333333" d="{{tips}}" stroke-dasharray="0.1 0.1" stroke-linejoin="round" stroke-width="0.0375" fill="none" />
+  <text 
+    x="{{width/2}}"
+    y="{{height + 4}}"
+    font-family="-apple-system, system-ui, BlinkMacSystemFont, Roboto"
+    dominant-baseline="middle"
+    text-anchor="middle"
+    font-size="5%"
+    fill="#74838f"
+    font-weight="600"
+    >
+    {{title}}
+  </text>
+
+</svg>
