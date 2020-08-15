@@ -1,5 +1,3 @@
-use tera::{Context, Tera};
-
 use crate::array2d::Array2D;
 
 bitflags! {
@@ -194,6 +192,10 @@ impl Frieze {
         self.period
     }
 
+    pub fn grids(&self) -> &Array2D<Grid> {
+        &self.grids
+    }
+
     pub fn paths(&self) -> Vec<((usize, usize), (usize, usize))> {
         let mut paths = Vec::with_capacity(self.points.num_elems() * 3);
         for (y, row) in self.points.rows().enumerate() {
@@ -213,53 +215,5 @@ impl Frieze {
             }
         }
         paths
-    }
-
-    pub fn draw_svg(&self) -> String {
-        use FriezeGroup::*;
-        let mut ctx = Context::new();
-        let group = self.group();
-        let title = format!("{:?} Period({})", group, self.period);
-        let width = self.grids.num_cols() as f64;
-        let height = self.grids.num_rows() as f64;
-        let middle = (self.grids.num_cols() / self.period * self.period / 2) as f64;
-        let pad = 2.0;
-
-        let tips = match group {
-            TV(i) | TRVG(i) | TRHVG(i) => {
-                let i = middle + i as f64 / 2.0;
-                format!("M {} {} L {} {}", i, -pad, i, height + pad)
-            }
-            TG(offset) => {
-                let offset = offset as f64;
-                let i = (width - offset) / 2.0;
-                let middle = height / 2.0;
-                format!(
-                    "M {} {} L {} {} L {} {} L {} {}",
-                    i,
-                    -pad,
-                    i,
-                    middle,
-                    i + offset,
-                    middle,
-                    i + offset,
-                    height + pad
-                )
-            }
-            TR(i) => {
-                let i = middle + i as f64 / 2.0;
-                let half = height / 2.0 + pad;
-                format!("M {} {} L {} {}", i - half, -pad, i + half, height + pad)
-            }
-            _ => "".into(),
-        };
-
-        ctx.insert("title", &title);
-        ctx.insert("width", &width);
-        ctx.insert("height", &height);
-        ctx.insert("paths", &self.paths());
-        ctx.insert("tips", &tips);
-
-        Tera::one_off(include_str!("graph.svg"), &ctx, true).expect("Could not draw graph")
     }
 }
