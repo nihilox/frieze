@@ -15,8 +15,8 @@ use frieze::{Frieze, FriezeGroup, Point};
 #[wasm_bindgen]
 pub fn analyse_frieze(content: &[u8]) -> String {
     match parse(content) {
-        Ok(f) => f.draw_svg(),
-        Err(s) => s.into(),
+        Ok(frieze) => frieze.draw_svg(),
+        Err(msg) => msg.into(),
     }
 }
 
